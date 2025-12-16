@@ -44,16 +44,16 @@ export async function planSchedule({
   // Check if heuristics produced high-confidence schedule
   const avgConfidence = heuristicSlots.reduce((sum, slot) => sum + slot.confidence, 0) / heuristicSlots.length;
   
-  if (avgConfidence >= 0.8 || !process.env.OPENAI_API_KEY) {
+  if (avgConfidence >= 0.8 || !process.env.GEMINI_API_KEY) {
     // High confidence or no API key - use heuristic results
     return heuristicSlots.map(slotToEvent);
   }
   
-  // Step 2: Low confidence - enhance with OpenAI
+  // Step 2: Low confidence - enhance with Gemini AI
   try {
-    return await scheduleWithOpenAI(tasks, weekStart, existingEvents, heuristicSlots);
+    return await scheduleWithGemini(tasks, weekStart, existingEvents, heuristicSlots);
   } catch (error) {
-    console.warn("OpenAI scheduling failed, falling back to heuristics:", error);
+    console.warn("Gemini scheduling failed, falling back to heuristics:", error);
     return heuristicSlots.map(slotToEvent);
   }
 }
@@ -171,17 +171,17 @@ function findNextAvailableSlot(
 }
 
 /**
- * OpenAI-enhanced scheduling for complex cases
- * Uses GPT to optimize schedule based on task context and constraints
+ * Gemini AI-enhanced scheduling for complex cases
+ * Uses Google's Gemini to optimize schedule based on task context and constraints
  */
-async function scheduleWithOpenAI(
+async function scheduleWithGemini(
   tasks: Task[],
   weekStart: string,
   existingEvents: CalendarEvent[],
   heuristicSlots: TimeSlot[]
 ): Promise<CalendarEvent[]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OpenAI API key not configured");
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini API key not configured");
   
   // Prepare prompt with context
   const prompt = `You are a scheduling assistant. Given these tasks and constraints, optimize the schedule.
@@ -196,28 +196,35 @@ Current heuristic schedule confidence: ${(heuristicSlots.reduce((s, sl) => s + s
 Suggest optimized time slots in JSON format:
 [{"taskId": "...", "start": "ISO date", "end": "ISO date"}]`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are a helpful scheduling assistant. Return only valid JSON." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.3,
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 2048,
+      },
     }),
   });
   
   if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.statusText}`);
+    throw new Error(`Gemini API error: ${response.statusText}`);
   }
   
   const data = await response.json();
-  const aiSlots = JSON.parse(data.choices[0].message.content);
+  const textResponse = data.candidates[0].content.parts[0].text;
+  
+  // Extract JSON from response (may be wrapped in markdown code blocks)
+  const jsonMatch = textResponse.match(/```json\n?([\s\S]*?)\n?```/) || textResponse.match(/\[[\s\S]*\]/);
+  const jsonText = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : textResponse;
+  const aiSlots = JSON.parse(jsonText);
   
   // Convert AI suggestions to events
   return aiSlots.map((slot: { taskId: string; start: string; end: string }) => {
