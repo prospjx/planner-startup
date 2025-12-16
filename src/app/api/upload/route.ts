@@ -79,26 +79,16 @@ async function extractAssignmentsFromFile(file: File): Promise<{
     // Determine MIME type for Gemini
     const mimeType = file.type;
 
-    const prompt = `Analyze this document (syllabus, course schedule, or assignment sheet) and extract ALL assignments, homework, quizzes, tests, and exams with their due dates.
+    const prompt = `You are an academic schedule analyzer. Extract ALL deadlines and assignments from this image/document.
 
-Look for:
-- Homework (HW) assignments and due dates
-- Quizzes and their due dates  
-- Tests/Exams and their dates
-- Projects and deadlines
-- Any other graded work with dates
+Return ONLY a JSON array. Each item should have:
+- "title": The assignment name (e.g., "HW 2.1", "Quiz 3", "Final Exam")
+- "deadline": Date in YYYY-MM-DD format (required)
+- "description": Optional brief note
 
-Return a JSON array with this exact structure:
-[
-  {
-    "title": "Assignment name (e.g., 'HW 2.1', 'Quiz 2', 'Test 1')",
-    "deadline": "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS",
-    "description": "Brief description if available"
-  }
-]
+Format: [{"title":"HW 2.1","deadline":"2025-09-05"},{"title":"Quiz 2","deadline":"2025-09-07"}]
 
-Extract every single item with a due date. If time is specified, include it in the deadline.
-Return ONLY the JSON array, no markdown formatting or extra text.`;
+Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about format, include it.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
@@ -120,28 +110,61 @@ Return ONLY the JSON array, no markdown formatting or extra text.`;
             },
           ],
           generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 2048,
+            temperature: 0.1,
+            maxOutputTokens: 4096,
           },
         }),
       }
     );
 
     if (!response.ok) {
+      const error = await response.text();
+      console.error("Gemini API error response:", error);
       throw new Error(`Gemini API error: ${response.statusText}`);
     }
 
     const data = await response.json();
+    
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error("Unexpected Gemini response structure:", data);
+      return { assignments: [], confidence: 0 };
+    }
+
     const textResponse = data.candidates[0].content.parts[0].text;
+    console.log("Gemini response:", textResponse);
 
-    // Extract JSON from response (handle markdown code blocks)
-    const jsonMatch = textResponse.match(/```json\n?([\s\S]*?)\n?```/) || textResponse.match(/\[[\s\S]*\]/);
-    const jsonText = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : textResponse;
-    const assignments = JSON.parse(jsonText);
+    // Extract JSON from response
+    let assignments: Array<{ title: string; deadline?: string; description?: string }> = [];
+    
+    try {
+      // Try to find JSON array in the response
+      const jsonMatch = textResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        assignments = Array.isArray(parsed) ? parsed : [];
+      } else {
+        console.warn("No JSON array found in response:", textResponse);
+      }
+    } catch (parseError) {
+      console.error("Failed to parse JSON from Gemini response:", parseError);
+      // Try to extract manually as fallback
+      const lines = textResponse.split('\n');
+      for (const line of lines) {
+        const match = line.match(/([A-Za-z0-9\s.]+).*?(\d{4}-\d{2}-\d{2})/);
+        if (match) {
+          assignments.push({
+            title: match[1].trim(),
+            deadline: match[2],
+          });
+        }
+      }
+    }
 
+    console.log("Extracted assignments:", assignments);
+    
     return {
-      assignments: Array.isArray(assignments) ? assignments : [],
-      confidence: 0.85, // High confidence for Gemini vision extraction
+      assignments: assignments.filter(a => a.title && a.deadline),
+      confidence: assignments.length > 0 ? 0.85 : 0,
     };
   } catch (error) {
     console.error("AI extraction failed:", error);
