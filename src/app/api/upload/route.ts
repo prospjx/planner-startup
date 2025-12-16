@@ -74,19 +74,26 @@ async function extractAssignmentsFromFile(file: File): Promise<{
     // Determine MIME type for Gemini
     const mimeType = file.type;
 
-    const prompt = `Extract all assignment titles and their due dates from this document (syllabus, assignment sheet, or course schedule).
+    const prompt = `Analyze this document (syllabus, course schedule, or assignment sheet) and extract ALL assignments, homework, quizzes, tests, and exams with their due dates.
 
-Return a JSON array with this structure:
+Look for:
+- Homework (HW) assignments and due dates
+- Quizzes and their due dates  
+- Tests/Exams and their dates
+- Projects and deadlines
+- Any other graded work with dates
+
+Return a JSON array with this exact structure:
 [
   {
-    "title": "Assignment name",
-    "deadline": "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS" if time is specified,
+    "title": "Assignment name (e.g., 'HW 2.1', 'Quiz 2', 'Test 1')",
+    "deadline": "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS",
     "description": "Brief description if available"
   }
 ]
 
-If no clear deadline is found, omit the "deadline" field.
-Return only valid JSON, no markdown formatting.`;
+Extract every single item with a due date. If time is specified, include it in the deadline.
+Return ONLY the JSON array, no markdown formatting or extra text.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
