@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [fullScreenCalendar, setFullScreenCalendar] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>("");
   const [newTask, setNewTask] = useState({
     title: "",
     day: "Mon" as const,
@@ -82,6 +84,51 @@ export default function DashboardPage() {
     setShowAddForm(false);
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadStatus("Uploading and extracting...");
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data.ok && data.extracted?.assignments?.length > 0) {
+        // Convert extracted assignments to tasks
+        const newTasks = data.extracted.assignments.map((assignment: { title: string; deadline?: string; description?: string }) => ({
+          id: `t${Date.now()}-${Math.random()}`,
+          title: assignment.title,
+          day: "Mon" as const, // Will be scheduled by AI
+          time: "9:00 AM",
+          priority: "medium" as const,
+          deadline: assignment.deadline,
+          status: "pending" as const,
+        }));
+
+        setTasks((prev) => [...prev, ...newTasks]);
+        setUploadStatus(`✓ Extracted ${newTasks.length} assignment(s) from ${file.name}`);
+        
+        setTimeout(() => {
+          setShowUploadModal(false);
+          setUploadStatus("");
+        }, 2000);
+      } else {
+        setUploadStatus("✗ No assignments found in document");
+      }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      setUploadStatus("✗ Upload failed. Please try again.");
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="fixed left-0 right-0 top-0 z-40 border-b border-slate-200 bg-white px-6 py-3">
@@ -123,6 +170,18 @@ export default function DashboardPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                       </svg>
                       Create Task
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowUploadModal(true);
+                        setShowMenu(false);
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      Upload Syllabus/PDF
                     </button>
                   </div>
                 </div>
@@ -295,6 +354,52 @@ export default function DashboardPage() {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {showUploadModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="mx-4 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900">Upload Syllabus or Document</h2>
+                <button
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setUploadStatus("");
+                  }}
+                  className="text-slate-400 transition hover:text-slate-900"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Upload a PDF, DOCX, or image. AI will extract assignment titles and deadlines.
+              </p>
+              <div className="mt-4">
+                <label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 transition hover:border-blue-400 hover:bg-blue-50">
+                  <svg className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="mt-2 text-sm text-slate-600">Click to upload or drag and drop</span>
+                  <span className="mt-1 text-xs text-slate-500">PDF, DOCX, PNG, JPEG (max 10MB)</span>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.webp"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {uploadStatus && (
+                <div className={`mt-4 rounded-lg px-4 py-3 text-sm ${
+                  uploadStatus.startsWith("✓") ? "bg-emerald-50 text-emerald-800" : 
+                  uploadStatus.startsWith("✗") ? "bg-rose-50 text-rose-800" : 
+                  "bg-blue-50 text-blue-800"
+                }`}>
+                  {uploadStatus}
+                </div>
+              )}
             </div>
           </div>
         )}
