@@ -79,19 +79,15 @@ async function extractAssignmentsFromFile(file: File): Promise<{
     // Determine MIME type for Gemini
     const mimeType = file.type;
 
-    const prompt = `You are an academic schedule analyzer. Extract ALL deadlines and assignments from this image/document.
+    const prompt = `Extract ALL assignments, homework, quizzes, tests, exams from this image/document with their due dates.
 
-Return ONLY a JSON array. Each item should have:
-- "title": The assignment name (e.g., "HW 2.1", "Quiz 3", "Final Exam")
-- "deadline": Date in YYYY-MM-DD format (required)
-- "description": Optional brief note
+Return JSON array ONLY:
+[{"title":"HW 2.1","deadline":"2025-09-05"},{"title":"Quiz 2","deadline":"2025-09-07"}]
 
-Format: [{"title":"HW 2.1","deadline":"2025-09-05"},{"title":"Quiz 2","deadline":"2025-09-07"}]
-
-Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about format, include it.`;
+Include every assignment with a date visible. No other text.`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,7 +107,7 @@ Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about
           ],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8000,
           },
         }),
       }
@@ -119,19 +115,21 @@ Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("Gemini API error response:", error);
-      throw new Error(`Gemini API error: ${response.statusText}`);
+      console.error("Gemini API error response:", response.status, error);
+      
+      // Fallback: return empty with note to try again
+      return { assignments: [], confidence: 0 };
     }
 
     const data = await response.json();
     
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error("Unexpected Gemini response structure:", data);
+      console.error("Unexpected Gemini response structure");
       return { assignments: [], confidence: 0 };
     }
 
     const textResponse = data.candidates[0].content.parts[0].text;
-    console.log("Gemini response:", textResponse);
+    console.log("Gemini raw response:", textResponse);
 
     // Extract JSON from response
     let assignments: Array<{ title: string; deadline?: string; description?: string }> = [];
@@ -142,25 +140,15 @@ Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         assignments = Array.isArray(parsed) ? parsed : [];
+        console.log("Successfully parsed assignments:", assignments);
       } else {
-        console.warn("No JSON array found in response:", textResponse);
+        console.warn("No JSON array found in response");
       }
     } catch (parseError) {
-      console.error("Failed to parse JSON from Gemini response:", parseError);
-      // Try to extract manually as fallback
-      const lines = textResponse.split('\n');
-      for (const line of lines) {
-        const match = line.match(/([A-Za-z0-9\s.]+).*?(\d{4}-\d{2}-\d{2})/);
-        if (match) {
-          assignments.push({
-            title: match[1].trim(),
-            deadline: match[2],
-          });
-        }
-      }
+      console.error("Failed to parse JSON:", parseError);
     }
 
-    console.log("Extracted assignments:", assignments);
+    console.log("Extracted assignments count:", assignments.length);
     
     return {
       assignments: assignments.filter(a => a.title && a.deadline),
