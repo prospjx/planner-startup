@@ -32,16 +32,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Upload to Firebase Storage
-    const uploadResult = await uploadDocument(file);
+    // Upload to Firebase Storage (optional - skip if not configured)
+    let uploadResult = null;
+    try {
+      uploadResult = await uploadDocument(file);
+    } catch (error) {
+      console.warn("Firebase upload skipped (not configured):", error);
+    }
 
     // Extract assignments and dates using AI
     const extractedData = await extractAssignmentsFromFile(file);
 
     return NextResponse.json({
       ok: true,
-      storageUrl: uploadResult.storageUrl,
-      bytes: uploadResult.bytes,
+      storageUrl: uploadResult?.storageUrl,
+      bytes: uploadResult?.bytes,
       fileName: file.name,
       fileType: file.type,
       extracted: extractedData,
