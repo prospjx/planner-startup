@@ -251,3 +251,80 @@ function slotToEvent(slot: TimeSlot): CalendarEvent {
     status: "tentative",
   };
 }
+
+/**
+ * Suggest a time slot for a single task
+ * Finds the first available 1-2 hour slot before the deadline
+ * 
+ * @param task - Task to schedule (must have durationMinutes, optional deadline)
+ * @param calendar - Array of existing calendar events
+ * @returns Suggested time slot or null if none found
+ */
+export function suggestTimeSlot(
+  task: { durationMinutes: number; deadline?: string },
+  calendar: CalendarEvent[]
+): { start: Date; end: Date } | null {
+  const now = new Date();
+  const deadline = task.deadline ? new Date(task.deadline) : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days default
+  
+  // Convert calendar events to occupied slots
+  const occupied = calendar.map(e => ({
+    start: new Date(e.start),
+    end: new Date(e.end),
+  }));
+  
+  // Try to find a slot between now and deadline
+  const searchEnd = new Date(Math.min(deadline.getTime(), now.getTime() + 14 * 24 * 60 * 60 * 1000));
+  let currentDay = new Date(now);
+  currentDay.setHours(WORK_START_HOUR, 0, 0, 0);
+  
+  // If current time is past work hours, start tomorrow
+  if (now.getHours() >= WORK_END_HOUR) {
+    currentDay.setDate(currentDay.getDate() + 1);
+  } else if (now.getHours() >= WORK_START_HOUR) {
+    currentDay = new Date(now);
+    currentDay.setMinutes(Math.ceil(now.getMinutes() / 30) * 30); // Round to next 30 min
+  }
+  
+  const taskDuration = task.durationMinutes * 60_000; // ms
+  
+  // Search for available slot
+  while (currentDay < searchEnd) {
+    // Skip weekends (optional - remove if you want weekend scheduling)
+    const dayOfWeek = currentDay.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      currentDay.setDate(currentDay.getDate() + 1);
+      currentDay.setHours(WORK_START_HOUR, 0, 0, 0);
+      continue;
+    }
+    
+    // Try each 30-minute increment during work hours
+    for (let hour = currentDay.getHours(); hour < WORK_END_HOUR; hour++) {
+      for (let minute = (hour === currentDay.getHours() ? currentDay.getMinutes() : 0); minute < 60; minute += 30) {
+        const slotStart = new Date(currentDay);
+        slotStart.setHours(hour, minute, 0, 0);
+        const slotEnd = new Date(slotStart.getTime() + taskDuration);
+        
+        // Skip if slot extends past work hours or deadline
+        if (slotEnd.getHours() > WORK_END_HOUR || slotEnd > deadline) {
+          continue;
+        }
+        
+        // Check for conflicts
+        const hasConflict = occupied.some(
+          occ => slotStart < occ.end && slotEnd > occ.start
+        );
+        
+        if (!hasConflict) {
+          return { start: slotStart, end: slotEnd };
+        }
+      }
+    }
+    
+    // Move to next day
+    currentDay.setDate(currentDay.getDate() + 1);
+    currentDay.setHours(WORK_START_HOUR, 0, 0, 0);
+  }
+  
+  return null; // No available slot found
+}
