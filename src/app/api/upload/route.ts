@@ -91,7 +91,7 @@ Format: [{"title":"HW 2.1","deadline":"2025-09-05"},{"title":"Quiz 2","deadline"
 Extract EVERY assignment, quiz, test, and exam with a date. Even if unsure about format, include it.`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
